@@ -5,8 +5,11 @@ from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
-# Only allow your Divi site domain
-CORS(app, resources={r"/*": {"origins": "https://dividojo.com","https://www.dividojo.com"}})
+# ✅ Allow your Divi domain(s)
+CORS(app, supports_credentials=True, resources={r"/*": {"origins": [
+    "https://dividojo.com",
+    "https://www.dividojo.com"
+]}})
 
 def seo_audit(url):
     results = {}
@@ -30,8 +33,10 @@ def seo_audit(url):
         results["Error"] = str(e)
     return results
 
-@app.route("/analyze", methods=["POST"])
+@app.route("/analyze", methods=["POST", "OPTIONS"])  # ✅ handle preflight OPTIONS
 def analyze():
+    if request.method == "OPTIONS":
+        return jsonify({"message": "CORS preflight OK"})
     data = request.json
     url = data.get("url")
     return jsonify(seo_audit(url))
@@ -42,4 +47,3 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
