@@ -1,8 +1,12 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 
 app = Flask(__name__)
+
+# Only allow your Divi site domain
+CORS(app, resources={r"/*": {"origins": "https://dividojo.com","https://www.dividojo.com"}})
 
 def seo_audit(url):
     results = {}
@@ -38,3 +42,4 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
