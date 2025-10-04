@@ -2,8 +2,19 @@ from flask import Flask, request, jsonify, make_response
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 app = Flask(__name__)
+
+# ---------- Email Settings ----------
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+EMAIL_USER = "youraddress@gmail.com"       # 👈 replace with your Gmail
+EMAIL_PASS = "your_app_password_here"      # 👈 use an App Password!
+
+ADMIN_EMAIL = "youraddress@gmail.com"      # 👈 where you want leads sent
 
 # ---------- Helpers ----------
 def normalize_url(u):
@@ -17,16 +28,27 @@ def normalize_url(u):
 
 def get(url, timeout=10):
     try:
-        return requests.get(
-            url,
-            timeout=timeout,
-            headers={"User-Agent": "Mozilla/5.0 (DiviDojoSEO/1.0)"},
-            allow_redirects=True,
-        )
+        return requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0 (DiviDojoSEO/1.0)"}, allow_redirects=True)
     except:
         return None
 
-# ---------- Main Analyzer ----------
+def send_email(subject, body, recipient):
+    """Send an email via Gmail SMTP."""
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = EMAIL_USER
+        msg["To"] = recipient
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "html"))
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(EMAIL_USER, EMAIL_PASS)
+            server.send_message(msg)
+        print(f"✅ Email sent to {recipient}")
+    except Exception as e:
+        print(f"❌ Email error: {e}")
+
+# ---------- SEO Audit ----------
 def seo_audit(url, keyword=None):
     results = {}
     url = normalize_url(url)
@@ -56,7 +78,6 @@ def seo_audit(url, keyword=None):
     robots = get(url.rstrip("/") + "/robots.txt")
     sitemap = get(url.rstrip("/") + "/sitemap.xml")
 
-    # ---------- Keyword & Scoring ----------
     keyword_found = []
     score = 0
     keyword = (keyword or "").lower().strip()
@@ -70,7 +91,6 @@ def seo_audit(url, keyword=None):
         if keyword in first200:
             keyword_found.append("First Paragraph"); score += 20
 
-    # Fundamental factors
     if title: score += 5
     if meta_desc: score += 5
     if is_https: score += 5
@@ -79,18 +99,9 @@ def seo_audit(url, keyword=None):
     if robots and robots.status_code == 200: score += 5
     if missing_alt == 0: score += 5
 
-    # Cap score at 100
     score = min(score, 100)
+    verdict = "Excellent ✅" if score >= 80 else "Needs Improvement ⚠️" if score >= 50 else "Poor ❌"
 
-    # Verdict
-    if score >= 80:
-        verdict = "Excellent ✅"
-    elif score >= 50:
-        verdict = "Needs Improvement ⚠️"
-    else:
-        verdict = "Poor ❌"
-
-    # ---------- Results ----------
     results.update({
         "Final URL": resp.url,
         "HTTPS Enabled": "✅ Yes" if is_https else "❌ No",
@@ -110,6 +121,31 @@ def seo_audit(url, keyword=None):
     })
 
     return results
+
+# ---------- Email Lead Notification ----------
+def send_report_emails(user_email, url, results):
+    score = results.get("SEO Score (0–100)")
+    verdict = results.get("Verdict")
+    summary = f"""
+    <h2>Divi Dojo SEO Report for {url}</h2>
+    <p><strong>Score:</strong> {score}/100<br>
+    <strong>Verdict:</strong> {verdict}</p>
+    <p>Thank you for using the Divi Dojo SEO Analyzer.<br>
+    For personalized help improving your score, <a href="https://dividojo.com/contact">schedule a consultation</a>.</p>
+    """
+
+    # Send to user
+    send_email("Your Divi Dojo SEO Report", summary, user_email)
+
+    # Send lead alert to admin
+    admin_body = f"""
+    <h3>🎯 New SEO Analyzer Lead</h3>
+    <p><strong>User:</strong> {user_email}<br>
+    <strong>Website:</strong> {url}<br>
+    <strong>Score:</strong> {score}<br>
+    <strong>Verdict:</strong> {verdict}</p>
+    """
+    send_email("New SEO Analyzer Lead", admin_body, ADMIN_EMAIL)
 
 # ---------- CORS ----------
 @app.after_request
@@ -131,8 +167,19 @@ def analyze():
     data = request.get_json(silent=True) or {}
     url = data.get("url")
     keyword = data.get("keyword")
-    return jsonify(seo_audit(url, keyword))
+    user_email = data.get("email")
+
+    results = seo_audit(url, keyword)
+
+    # Send emails asynchronously (non-blocking)
+    try:
+        if user_email:
+            send_report_emails(user_email, url, results)
+    except Exception as e:
+        print("Email send error:", e)
+
+    return jsonify(results)
 
 @app.route("/")
 def home():
-    return "✅ Divi Dojo SEO Analyzer with Keyword Scoring is live!"
+    return "✅ Divi Dojo SEO Analyzer with Keyword Scoring + Email Lead Capture is live!"
