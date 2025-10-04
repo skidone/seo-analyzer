@@ -1,12 +1,12 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS, cross_origin
+from flask import Flask, request, jsonify, make_response
+from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
-# Allow all origins for now (we’ll restrict later)
-CORS(app, supports_credentials=True)
+# ✅ Enable CORS for everything (test mode)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 def seo_audit(url):
     results = {}
@@ -30,12 +30,19 @@ def seo_audit(url):
         results["Error"] = str(e)
     return results
 
-# ✅ Explicitly allow OPTIONS + POST
+@app.after_request
+def add_cors_headers(response):
+    """Force CORS headers on every response, including OPTIONS."""
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
+
 @app.route("/analyze", methods=["POST", "OPTIONS"])
-@cross_origin()
 def analyze():
     if request.method == "OPTIONS":
-        return jsonify({"status": "OK (preflight)"}), 200
+        # Explicitly respond to preflight
+        return make_response(jsonify({"status": "CORS preflight OK"}), 200)
     data = request.json
     url = data.get("url")
     return jsonify(seo_audit(url))
