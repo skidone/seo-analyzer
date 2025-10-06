@@ -11,10 +11,9 @@ app = Flask(__name__)
 # ---------- Email Settings ----------
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-EMAIL_USER = "youraddress@gmail.com"       # 👈 replace with your Gmail
-EMAIL_PASS = "your_app_password_here"      # 👈 use an App Password!
-
-ADMIN_EMAIL = "youraddress@gmail.com"      # 👈 where you want leads sent
+EMAIL_USER = "dividojo@gmail.com"       # 👈 replace
+EMAIL_PASS = "oQ8@mW8@m2425"      # 👈 replace (App Password)
+ADMIN_EMAIL = "dividojo@gmail.com"      # 👈 where leads go
 
 # ---------- Helpers ----------
 def normalize_url(u):
@@ -48,6 +47,35 @@ def send_email(subject, body, recipient):
     except Exception as e:
         print(f"❌ Email error: {e}")
 
+# ---------- External SEO metrics ----------
+def get_traffic(domain):
+    """Get estimated monthly visits from SimilarWeb free API."""
+    try:
+        sw = requests.get(f"https://data.similarweb.com/api/v1/data?domain={domain}", timeout=10)
+        if sw.ok:
+            data = sw.json()
+            visits = 0
+            # Aggregate traffic from countries if returned that way
+            if "EstimatedMonthlyVisits" in data:
+                visits = sum(data["EstimatedMonthlyVisits"].values())
+            return int(visits)
+    except Exception as e:
+        print("Traffic error:", e)
+    return None
+
+def get_backlinks(domain):
+    """Get backlink count from OpenPageRank API."""
+    try:
+        headers = {"API-OPR": "08g08ogoww0gggk484k44k0kkw4ooo8488cgco00"}  # 👈 replace with your key
+        r = requests.get(f"https://openpagerank.com/api/v1.0/getPageRank?domains[]={domain}", headers=headers, timeout=10)
+        if r.ok:
+            data = r.json()
+            backlinks = data["response"][0].get("backlinks", 0)
+            return int(backlinks)
+    except Exception as e:
+        print("Backlink error:", e)
+    return None
+
 # ---------- SEO Audit ----------
 def seo_audit(url, keyword=None):
     results = {}
@@ -78,6 +106,12 @@ def seo_audit(url, keyword=None):
     robots = get(url.rstrip("/") + "/robots.txt")
     sitemap = get(url.rstrip("/") + "/sitemap.xml")
 
+    # ---- Extra Metrics ----
+    domain = urlparse(url).netloc.replace("www.", "")
+    traffic = get_traffic(domain)
+    backlinks = get_backlinks(domain)
+
+    # ---- Keyword & Score ----
     keyword_found = []
     score = 0
     keyword = (keyword or "").lower().strip()
@@ -91,6 +125,7 @@ def seo_audit(url, keyword=None):
         if keyword in first200:
             keyword_found.append("First Paragraph"); score += 20
 
+    # Fundamentals
     if title: score += 5
     if meta_desc: score += 5
     if is_https: score += 5
@@ -98,10 +133,11 @@ def seo_audit(url, keyword=None):
     if sitemap and sitemap.status_code == 200: score += 5
     if robots and robots.status_code == 200: score += 5
     if missing_alt == 0: score += 5
-
     score = min(score, 100)
+
     verdict = "Excellent ✅" if score >= 80 else "Needs Improvement ⚠️" if score >= 50 else "Poor ❌"
 
+    # ---- Results ----
     results.update({
         "Final URL": resp.url,
         "HTTPS Enabled": "✅ Yes" if is_https else "❌ No",
@@ -116,10 +152,11 @@ def seo_audit(url, keyword=None):
         "Viewport (Mobile Friendly)": "✅ Present" if viewport else "❌ Missing",
         "Keyword": keyword or "N/A",
         "Keyword Found In": ", ".join(keyword_found) if keyword_found else "❌ Not Found",
+        "Estimated Monthly Visitors": f"{traffic:,}" if traffic else "N/A",
+        "Backlinks (Referring Domains)": f"{backlinks:,}" if backlinks else "N/A",
         "SEO Score (0–100)": score,
         "Verdict": verdict
     })
-
     return results
 
 # ---------- Email Lead Notification ----------
@@ -133,11 +170,7 @@ def send_report_emails(user_email, url, results):
     <p>Thank you for using the Divi Dojo SEO Analyzer.<br>
     For personalized help improving your score, <a href="https://dividojo.com/contact">schedule a consultation</a>.</p>
     """
-
-    # Send to user
     send_email("Your Divi Dojo SEO Report", summary, user_email)
-
-    # Send lead alert to admin
     admin_body = f"""
     <h3>🎯 New SEO Analyzer Lead</h3>
     <p><strong>User:</strong> {user_email}<br>
@@ -168,18 +201,14 @@ def analyze():
     url = data.get("url")
     keyword = data.get("keyword")
     user_email = data.get("email")
-
     results = seo_audit(url, keyword)
-
-    # Send emails asynchronously (non-blocking)
     try:
         if user_email:
             send_report_emails(user_email, url, results)
     except Exception as e:
         print("Email send error:", e)
-
     return jsonify(results)
 
 @app.route("/")
 def home():
-    return "✅ Divi Dojo SEO Analyzer with Keyword Scoring + Email Lead Capture is live!"
+    return "✅ Divi Dojo SEO Analyzer with Traffic + Backlinks + Email is live!"
