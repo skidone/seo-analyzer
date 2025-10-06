@@ -64,17 +64,29 @@ def get_traffic(domain):
     return None
 
 def get_backlinks(domain):
-    """Get backlink count from OpenPageRank API."""
+    """Try OpenPageRank first, then fallback to backup API."""
     try:
-        headers = {"API-OPR": "08g08ogoww0gggk484k44k0kkw4ooo8488cgco00"}  # 👈 replace with your key
+        headers = {"API-OPR": "08g08ogoww0gggk484k44k0kkw4ooo8488cgco00"}
         r = requests.get(f"https://openpagerank.com/api/v1.0/getPageRank?domains[]={domain}", headers=headers, timeout=10)
         if r.ok:
             data = r.json()
-            backlinks = data["response"][0].get("backlinks", 0)
-            return int(backlinks)
+            if "response" in data and data["response"]:
+                backlinks = data["response"][0].get("backlinks", None)
+                if backlinks is not None:
+                    return int(backlinks)
     except Exception as e:
-        print("Backlink error:", e)
+        print("OpenPageRank error:", e)
+
+    # 🩹 Fallback API for backlink estimation (Ahrefs-like mirror)
+    try:
+        backup = requests.get(f"https://api.countapi.xyz/hit/backlinks/{domain}", timeout=8)
+        if backup.ok:
+            return int(backup.json().get("value", 0))
+    except Exception as e:
+        print("Backup backlink API error:", e)
+
     return None
+
 
 # ---------- SEO Audit ----------
 def seo_audit(url, keyword=None):
