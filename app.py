@@ -24,7 +24,7 @@ def lead():
 
     sender = "dividojo@gmail.com"          # the Gmail you used for App Password
     receiver = "dividojo@gmail.com"          # where you want the leads sent
-    password = "ppbx ehuc spov nagk"           # your 16-character app password
+    password = "ppbxehucspovnagk"           # your 16-character app password
 
     msg = MIMEText(f"New SEO Analyzer Lead from {name}\nEmail: {email}\n\nMessage:\n{message}")
     msg["Subject"] = f"New SEO Analyzer Lead from {name}"
