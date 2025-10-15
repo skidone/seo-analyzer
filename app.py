@@ -32,13 +32,50 @@ def analyze():
         meta_desc = meta_desc_tag["content"].strip() if meta_desc_tag else "No meta description found"
 
         # SEO score logic
-        score = 0
-        if title and title != "No title tag found": score += 25
-        if meta_desc and meta_desc != "No meta description found": score += 25
-        if keyword and keyword.lower() in html.lower(): score += 25
-        if "https://" in url: score += 25
+       # --- inside your analyze route, after fetching the HTML ---
+score = 0
+factors = 0
 
-        verdict = "Excellent" if score >= 90 else "Good" if score >= 70 else "Needs Improvement"
+if title: 
+    score += 20
+    factors += 1
+if description:
+    score += 20
+    factors += 1
+if keyword and keyword.lower() in title.lower():
+    score += 20
+    factors += 1
+if keyword and keyword.lower() in description.lower():
+    score += 10
+    factors += 1
+if h1_tags:
+    score += 15
+    factors += 1
+if len(h1_tags) > 1:
+    score += 5
+    factors += 1
+if keyword and any(keyword.lower() in h1.lower() for h1 in h1_tags):
+    score += 10
+    factors += 1
+
+# normalize (cap at 100)
+seo_score = min(100, int(score))
+
+verdict = (
+    "Excellent ✅" if seo_score >= 85 else
+    "Good 👍" if seo_score >= 70 else
+    "Needs Improvement ⚠️"
+)
+
+return jsonify({
+    "URL": url,
+    "Title Tag": title,
+    "Meta Description": description,
+    "H1 Count": len(h1_tags),
+    "Keyword In Title": keyword.lower() in title.lower() if keyword else False,
+    "SEO Score (0–100)": seo_score,
+    "Verdict": verdict
+})
 
         # Additional trust-building insights
         h1_tags = [h1.get_text().strip() for h1 in soup.find_all("h1")]
