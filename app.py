@@ -1,84 +1,67 @@
-# ============================================
-#  Divi Dojo SEO Analyzer – Backend (Render)
-# ============================================
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import smtplib
-from email.mime.text import MIMEText
+import requests
+from bs4 import BeautifulSoup
 
-# --- Flask setup ---
 app = Flask(__name__)
-# Allow browser requests from your Divi site
-CORS(app, origins=["https://dividojo.com"])
+CORS(app, origins=["https://dividojo.com", "https://www.dividojo.com"])
 
+@app.route("/")
+def home():
+    return "Divi Dojo SEO Analyzer API is running successfully!"
 
-# --------------------------------------------
-#  Example /analyze route (placeholder)
-#  Replace this logic later with your full SEO analysis code.
-# --------------------------------------------
 @app.route("/analyze", methods=["POST"])
 def analyze():
     data = request.get_json()
     url = data.get("url")
-    keyword = data.get("keyword")
+    keyword = data.get("keyword", "")
+    email = data.get("email", "")
 
-    # Simple mock analysis response
-    results = {
-        "SEO Score (0–100)": 87,
-        "Verdict": "Good",
-        "Meta Description": "Example meta description detected.",
-        "Title Tag": "Example title tag found.",
-        "Keyword": keyword or "N/A",
-        "URL": url,
-    }
-    return jsonify(results)
-
-
-# --------------------------------------------
-#  /lead route – sends email using Brevo SMTP
-# --------------------------------------------
-@app.route("/lead", methods=["POST"])
-def lead():
-    data = request.get_json()
-    name = data.get("name")
-    email = data.get("email")
-    message = data.get("message")
-
-    sender = "hello@dividojo.com"      # Your verified sender on Brevo
-    receiver = "dividojo@gmail.com"      # Where you want to receive leads
-    smtp_user = "dividojo@gmail.com"    # Brevo SMTP login (usually your email)
-    smtp_pass = "8jXb3fNEBmp1IWv7"    # Brevo SMTP key from dashboard
-
-    msg = MIMEText(
-        f"New SEO Analyzer Lead\n\nName: {name}\nEmail: {email}\n\nMessage:\n{message}"
-    )
-    msg["Subject"] = f"New SEO Analyzer Lead from {name}"
-    msg["From"] = sender
-    msg["To"] = receiver
+    if not url:
+        return jsonify({"error": "No URL provided"}), 400
 
     try:
-        server = smtplib.SMTP("smtp-relay.brevo.com", 587)
-        server.starttls()
-        server.login(smtp_user, smtp_pass)
-        server.sendmail(sender, receiver, msg.as_string())
-        server.quit()
-        return jsonify({"ok": True})
+        # Fetch website
+        response = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        html = response.text
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Extract SEO data
+        title = soup.title.string.strip() if soup.title else "No title tag found"
+        meta_desc_tag = soup.find("meta", attrs={"name": "description"})
+        meta_desc = meta_desc_tag["content"].strip() if meta_desc_tag else "No meta description found"
+
+        # SEO score logic
+        score = 0
+        if title and title != "No title tag found": score += 25
+        if meta_desc and meta_desc != "No meta description found": score += 25
+        if keyword and keyword.lower() in html.lower(): score += 25
+        if "https://" in url: score += 25
+
+        verdict = "Excellent" if score >= 90 else "Good" if score >= 70 else "Needs Improvement"
+
+        # Additional trust-building insights
+        h1_tags = [h1.get_text().strip() for h1 in soup.find_all("h1")]
+        h1_count = len(h1_tags)
+        keyword_in_title = keyword.lower() in title.lower() if keyword else False
+
+        report = {
+            "Title Tag": title,
+            "Meta Description": meta_desc,
+            "H1 Count": h1_count,
+            "H1 Tags": h1_tags,
+            "Keyword": keyword,
+            "Keyword In Title": keyword_in_title,
+            "Verdict": verdict,
+            "SEO Score (0–100)": score,
+            "URL": url
+        }
+
+        return jsonify(report)
+
     except Exception as e:
-        print("Email send error:", e)
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
-# --------------------------------------------
-#  Health check root
-# --------------------------------------------
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify({"status": "OK", "message": "Divi Dojo SEO Analyzer API running"})
-
-
-# --------------------------------------------
-#  Run locally (Render ignores this; it's for testing on Mac)
-# --------------------------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000)
