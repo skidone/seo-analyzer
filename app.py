@@ -249,12 +249,14 @@ def places_nearby_search(market, category, radius_miles=15, limit=20):
     lat, lng = geocode_market(market)
     radius_meters = max(1000, min(int(float(radius_miles) * 1609.34), 50000))
 
+    # Text Search is usually better for prospecting queries like
+    # "dentist in St. Petersburg, FL" than Nearby Search keyword matching.
     data = google_get(
-        "https://maps.googleapis.com/maps/api/place/nearbysearch/json",
+        "https://maps.googleapis.com/maps/api/place/textsearch/json",
         {
+            "query": f"{category} in {market}",
             "location": f"{lat},{lng}",
-            "radius": radius_meters,
-            "keyword": category
+            "radius": radius_meters
         }
     )
 
@@ -711,30 +713,49 @@ def existing_business_leads():
     except Exception as e:
         return jsonify({"error": f"Google Places search failed: {e}"}), 400
 
-    leads = []
+       leads = []
+    debug = {
+        "raw_places_returned": len(raw_places),
+        "skipped_no_place_id": 0,
+        "skipped_no_details": 0,
+        "skipped_low_rating": 0,
+        "skipped_low_reviews": 0,
+        "skipped_chain": 0,
+        "processed": 0
+    }
 
-    for item in raw_places:
+        for item in raw_places:
         place_id = item.get("place_id")
         if not place_id:
+            debug["skipped_no_place_id"] += 1
             continue
 
         details = place_details(place_id)
         if not details:
+            debug["skipped_no_details"] += 1
             continue
+
+        debug["processed"] += 1
 
         rating = float(details.get("rating") or 0)
         reviews = int(details.get("user_ratings_total") or 0)
 
-        if rating < min_rating or reviews < min_reviews:
+        if rating < min_rating:
+            debug["skipped_low_rating"] += 1
             continue
 
+        if reviews < min_reviews:
+            debug["skipped_low_reviews"] += 1
+            continue
+            
         website = details.get("website") or ""
         address = details.get("formatted_address") or ""
         name = details.get("name") or ""
 
         is_chain = likely_chain_business(name, website, address)
 
-        if exclude_chains and is_chain:
+                if exclude_chains and is_chain:
+            debug["skipped_chain"] += 1
             continue
 
         website_scan = scan_business_website(website)
@@ -783,11 +804,12 @@ def existing_business_leads():
 
     leads.sort(key=lambda x: x.get("lead_priority_score", 0), reverse=True)
 
-    return jsonify({
+        return jsonify({
         "market": market,
         "category": category,
         "radius_miles": radius_miles,
         "count": len(leads),
+        "debug": debug,
         "leads": leads
     })
 # ---------- Lead capture ----------
