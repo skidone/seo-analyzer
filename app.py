@@ -713,7 +713,7 @@ def existing_business_leads():
     except Exception as e:
         return jsonify({"error": f"Google Places search failed: {e}"}), 400
 
-       leads = []
+    leads = []
     debug = {
         "raw_places_returned": len(raw_places),
         "skipped_no_place_id": 0,
