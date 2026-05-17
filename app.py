@@ -8,18 +8,23 @@ import re
 import time
 
 app = Flask(__name__)
+
 # Allow your site + local for testing; widen if you embed on multiple domains
 CORS(app, resources={r"/*": {"origins": ["https://dividojo.com", "https://www.dividojo.com", "*"]}})
 
 UA = "Mozilla/5.0 (compatible; DiviDojoSEO/1.0; +https://dividojo.com)"
 TIMEOUT = 10
+LAST_PLACES_DEBUG = {}
+
 
 def fetch(url):
     return requests.get(url, headers={"User-Agent": UA}, timeout=TIMEOUT)
 
+
 @app.route("/")
 def home():
     return "Divi Dojo SEO Analyzer API is running successfully!"
+
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
@@ -48,132 +53,152 @@ def analyze():
     soup = BeautifulSoup(html, "html.parser")
 
     # ---------- Extract signals ----------
-    # Title
+
     title = (soup.title.string or "").strip() if soup.title and soup.title.string else ""
 
-    # Meta description
     md = soup.find("meta", attrs={"name": "description"})
     description = (md.get("content") or "").strip() if md else ""
 
-    # H1 tags
     h1_tags = [h.get_text(strip=True) for h in soup.find_all("h1")]
 
-    # Word count (visible text heuristic)
     for t in soup(["script", "style", "noscript"]):
         t.extract()
+
     text = soup.get_text(separator=" ")
     words = [w for w in text.split() if w.isalpha() or any(c.isalnum() for c in w)]
     word_count = len(words)
 
-    # Images without alt
     imgs = soup.find_all("img")
     imgs_without_alt = sum(1 for im in imgs if not (im.get("alt") or "").strip())
 
-    # Viewport (mobile)
     viewport = soup.find("meta", attrs={"name": "viewport"})
     viewport_ok = bool(viewport)
 
-    # HTTPS
-    https_ok = (parsed.scheme.lower() == "https")
+    https_ok = parsed.scheme.lower() == "https"
 
-    # robots.txt / sitemap.xml
     base = f"{parsed.scheme}://{parsed.netloc}"
     robots_ok = False
     sitemap_ok = False
+
     try:
-        rr = requests.head(urljoin(base, "/robots.txt"), headers={"User-Agent": UA}, timeout=TIMEOUT, allow_redirects=True)
+        rr = requests.head(
+            urljoin(base, "/robots.txt"),
+            headers={"User-Agent": UA},
+            timeout=TIMEOUT,
+            allow_redirects=True
+        )
         if rr.status_code == 200:
             robots_ok = True
     except Exception:
         pass
+
     try:
-        sr = requests.head(urljoin(base, "/sitemap.xml"), headers={"User-Agent": UA}, timeout=TIMEOUT, allow_redirects=True)
+        sr = requests.head(
+            urljoin(base, "/sitemap.xml"),
+            headers={"User-Agent": UA},
+            timeout=TIMEOUT,
+            allow_redirects=True
+        )
         if sr.status_code == 200:
             sitemap_ok = True
     except Exception:
         pass
 
-    # Keyword presence
     keyword_in_title = bool(keyword and title and keyword in title.lower())
     keyword_in_desc = bool(keyword and description and keyword in description.lower())
     keyword_in_h1 = bool(keyword and any(keyword in h1.lower() for h1 in h1_tags))
-    keyword_in_body = bool(keyword and (keyword in text.lower()))
+    keyword_in_body = bool(keyword and keyword in text.lower())
+
     keyword_found_in_list = []
     if keyword:
-        if keyword_in_title: keyword_found_in_list.append("Title")
-        if keyword_in_desc:  keyword_found_in_list.append("Meta")
-        if keyword_in_h1:    keyword_found_in_list.append("H1")
-        if keyword_in_body:  keyword_found_in_list.append("Body")
+        if keyword_in_title:
+            keyword_found_in_list.append("Title")
+        if keyword_in_desc:
+            keyword_found_in_list.append("Meta")
+        if keyword_in_h1:
+            keyword_found_in_list.append("H1")
+        if keyword_in_body:
+            keyword_found_in_list.append("Body")
 
-    # ---------- Scoring (weights sum to ~100) ----------
+    # ---------- Scoring ----------
+
     score = 0
-    # Core on-page
-    if title:                score += 10
-    if description:          score += 10
-    if h1_tags:              score += 10
 
-    # Keyword targeting
-    if keyword_in_title:     score += 12
-    if keyword_in_desc:      score += 6
-    if keyword_in_h1:        score += 6
-    if keyword_in_body:      score += 6
+    if title:
+        score += 10
+    if description:
+        score += 10
+    if h1_tags:
+        score += 10
 
-    # Technical basics
-    if https_ok:             score += 10
-    if viewport_ok:          score += 8
-    if robots_ok:            score += 6
-    if sitemap_ok:           score += 6
+    if keyword_in_title:
+        score += 12
+    if keyword_in_desc:
+        score += 6
+    if keyword_in_h1:
+        score += 6
+    if keyword_in_body:
+        score += 6
 
-    # Content depth
-    if word_count >= 1200:   score += 12
-    elif word_count >= 600:  score += 8
-    elif word_count >= 300:  score += 4
+    if https_ok:
+        score += 10
+    if viewport_ok:
+        score += 8
+    if robots_ok:
+        score += 6
+    if sitemap_ok:
+        score += 6
 
-    # Image alt coverage (reward if most images have alt)
+    if word_count >= 1200:
+        score += 12
+    elif word_count >= 600:
+        score += 8
+    elif word_count >= 300:
+        score += 4
+
     total_imgs = len(imgs)
     if total_imgs > 0:
         covered = total_imgs - imgs_without_alt
         coverage_ratio = covered / total_imgs
-        if coverage_ratio >= 0.9:      score += 8
-        elif coverage_ratio >= 0.7:    score += 4
-        elif coverage_ratio >= 0.5:    score += 2
 
-    # Bound score
+        if coverage_ratio >= 0.9:
+            score += 8
+        elif coverage_ratio >= 0.7:
+            score += 4
+        elif coverage_ratio >= 0.5:
+            score += 2
+
     seo_score = max(0, min(100, int(round(score))))
 
-    verdict = ("Excellent ✅" if seo_score >= 85
-               else "Good 👍" if seo_score >= 70
-               else "Needs Improvement ⚠️")
+    verdict = (
+        "Excellent ✅" if seo_score >= 85
+        else "Good 👍" if seo_score >= 70
+        else "Needs Improvement ⚠️"
+    )
 
-    # ---------- Pretty fields for the v17 UI ----------
     def check_str(ok, yes="✅ Yes", no="❌ No"):
         return yes if ok else no
 
-    title_field = "✅ Present — {} chars".format(len(title)) if title else "❌ Missing"
-    desc_field  = "✅ Present — {} chars".format(len(description)) if description else "❌ Missing"
+    title_field = f"✅ Present — {len(title)} chars" if title else "❌ Missing"
+    desc_field = f"✅ Present — {len(description)} chars" if description else "❌ Missing"
     viewport_field = "✅ Present" if viewport_ok else "❌ Missing"
     https_field = check_str(https_ok)
     robots_field = check_str(robots_ok, yes="✅ Found", no="❌ Not Found")
     sitemap_field = check_str(sitemap_ok, yes="✅ Found", no="❌ Not Found")
     kw_where = ", ".join(keyword_found_in_list) if keyword_found_in_list else "Not Found"
 
-    # Optional authority metrics (set to N/A unless you wire an API)
     estimated_visitors = "N/A"
     backlinks_domains = "N/A"
 
-    # Response payload: include both neutral values and ✅/❌ for your icon logic
     payload = {
         "URL": url,
-        # headline metrics
         "SEO Score (0–100)": seo_score,
         "Verdict": verdict,
         "Estimated Monthly Visitors": estimated_visitors,
         "Backlinks (Referring Domains)": backlinks_domains,
-
-        # details (your v17 loops these into cards; emoji enable green/red icons)
         "Title": title_field,
         "Title Tag": title or "",
-        "Meta Description": desc_field if desc_field else "❌ Missing",
+        "Meta Description": desc_field,
         "H1 Count": len(h1_tags),
         "Word Count": word_count,
         "Images Without ALT": imgs_without_alt,
@@ -185,6 +210,7 @@ def analyze():
     }
 
     return jsonify(payload)
+
 
 # ---------- Existing Business Lead Generator ----------
 
@@ -239,29 +265,153 @@ def geocode_market(market):
     )
 
     if data.get("status") != "OK" or not data.get("results"):
-        raise RuntimeError("Could not geocode market")
+        raise RuntimeError(f"Could not geocode market. Status: {data.get('status')}")
 
     loc = data["results"][0]["geometry"]["location"]
     return loc["lat"], loc["lng"]
 
 
 def places_nearby_search(market, category, radius_miles=15, limit=20):
+    global LAST_PLACES_DEBUG
+
+    key = google_api_key()
+    if not key:
+        raise RuntimeError("GOOGLE_PLACES_API_KEY is not set")
+
+    LAST_PLACES_DEBUG = {
+        "query": f"{category} in {market}",
+        "method_used": "",
+        "new_location_count": 0,
+        "new_no_location_count": 0,
+        "legacy_count": 0,
+        "legacy_status": "",
+        "legacy_error_message": "",
+        "last_error": ""
+    }
+
     lat, lng = geocode_market(market)
     radius_meters = max(1000, min(int(float(radius_miles) * 1609.34), 50000))
 
-    # Text Search is usually better for prospecting queries like
-    # "dentist in St. Petersburg, FL" than Nearby Search keyword matching.
-    data = google_get(
-        "https://maps.googleapis.com/maps/api/place/textsearch/json",
-        {
-            "query": f"{category} in {market}",
-            "location": f"{lat},{lng}",
-            "radius": radius_meters
-        }
-    )
+    def convert_new_places(places):
+        results = []
 
-    results = data.get("results", [])[:limit]
-    return results
+        for p in places:
+            results.append({
+                "place_id": p.get("id"),
+                "_new_place_details": {
+                    "name": (p.get("displayName") or {}).get("text", ""),
+                    "formatted_address": p.get("formattedAddress", ""),
+                    "formatted_phone_number": p.get("nationalPhoneNumber", ""),
+                    "international_phone_number": p.get("internationalPhoneNumber", ""),
+                    "website": p.get("websiteUri", ""),
+                    "rating": p.get("rating", 0),
+                    "user_ratings_total": p.get("userRatingCount", 0),
+                    "types": p.get("types", []),
+                    "url": p.get("googleMapsUri", ""),
+                    "business_status": p.get("businessStatus", "")
+                }
+            })
+
+        return results
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": key,
+        "X-Goog-FieldMask": (
+            "places.id,"
+            "places.displayName,"
+            "places.formattedAddress,"
+            "places.nationalPhoneNumber,"
+            "places.internationalPhoneNumber,"
+            "places.websiteUri,"
+            "places.rating,"
+            "places.userRatingCount,"
+            "places.googleMapsUri,"
+            "places.businessStatus,"
+            "places.types"
+        )
+    }
+
+    # Attempt 1: Places API New Text Search with location bias
+    try:
+        response = requests.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            headers=headers,
+            json={
+                "textQuery": f"{category} in {market}",
+                "locationBias": {
+                    "circle": {
+                        "center": {
+                            "latitude": lat,
+                            "longitude": lng
+                        },
+                        "radius": float(radius_meters)
+                    }
+                },
+                "maxResultCount": max(1, min(int(limit), 20))
+            },
+            timeout=TIMEOUT
+        )
+
+        response.raise_for_status()
+        data = response.json()
+        places = data.get("places", [])
+
+        LAST_PLACES_DEBUG["new_location_count"] = len(places)
+
+        if places:
+            LAST_PLACES_DEBUG["method_used"] = "Places API New Text Search with location bias"
+            return convert_new_places(places)
+
+    except Exception as e:
+        LAST_PLACES_DEBUG["last_error"] = "New location search failed: " + str(e)
+
+    # Attempt 2: Places API New Text Search without location bias
+    try:
+        response = requests.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            headers=headers,
+            json={
+                "textQuery": f"{category} in {market}",
+                "maxResultCount": max(1, min(int(limit), 20))
+            },
+            timeout=TIMEOUT
+        )
+
+        response.raise_for_status()
+        data = response.json()
+        places = data.get("places", [])
+
+        LAST_PLACES_DEBUG["new_no_location_count"] = len(places)
+
+        if places:
+            LAST_PLACES_DEBUG["method_used"] = "Places API New Text Search without location bias"
+            return convert_new_places(places)
+
+    except Exception as e:
+        LAST_PLACES_DEBUG["last_error"] = "New no-location search failed: " + str(e)
+
+    # Attempt 3: Legacy Text Search fallback
+    try:
+        data = google_get(
+            "https://maps.googleapis.com/maps/api/place/textsearch/json",
+            {"query": f"{category} in {market}"}
+        )
+
+        results = data.get("results", [])
+        LAST_PLACES_DEBUG["legacy_count"] = len(results)
+        LAST_PLACES_DEBUG["legacy_status"] = data.get("status", "")
+        LAST_PLACES_DEBUG["legacy_error_message"] = data.get("error_message", "")
+
+        if results:
+            LAST_PLACES_DEBUG["method_used"] = "Legacy Text Search fallback"
+            return results[:limit]
+
+    except Exception as e:
+        LAST_PLACES_DEBUG["last_error"] = "Legacy search failed: " + str(e)
+
+    LAST_PLACES_DEBUG["method_used"] = "No method returned places"
+    return []
 
 
 def place_details(place_id):
@@ -326,7 +476,6 @@ def likely_chain_business(name, website, address=""):
     if any(pattern in (website or "").lower() for pattern in chain_url_patterns):
         return True
 
-    # Corporate-looking broad domains are not automatically chains, but this helps.
     if host and any(hint.replace(" ", "") in host for hint in CHAIN_HINTS):
         return True
 
@@ -338,8 +487,12 @@ def extract_city_from_address(address):
         return ""
 
     parts = [p.strip() for p in address.split(",")]
-    if len(parts) >= 2:
-        return parts[-3] if len(parts) >= 3 else parts[0]
+
+    if len(parts) >= 3:
+        return parts[-3]
+
+    if len(parts) >= 1:
+        return parts[0]
 
     return ""
 
@@ -353,6 +506,7 @@ def find_contact_name_from_site(soup):
         }
 
     text = soup.get_text(" ", strip=True)
+
     patterns = [
         r"(?:Founder|Owner|President|Principal|CEO|Director|Practice Manager|Office Manager|General Manager)\s*[:\-–]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})",
         r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\s*,?\s*(?:Founder|Owner|President|Principal|CEO|Director|Practice Manager|Office Manager|General Manager)",
@@ -363,8 +517,12 @@ def find_contact_name_from_site(soup):
         match = re.search(pattern, text)
         if match:
             name = match.group(1).strip()
-            role_match = re.search(r"(Founder|Owner|President|Principal|CEO|Director|Practice Manager|Office Manager|General Manager|Dr\.)", match.group(0))
+            role_match = re.search(
+                r"(Founder|Owner|President|Principal|CEO|Director|Practice Manager|Office Manager|General Manager|Dr\.)",
+                match.group(0)
+            )
             role = role_match.group(1) if role_match else "Possible contact"
+
             return {
                 "name": name,
                 "role": role,
@@ -399,6 +557,7 @@ def scan_business_website(url):
         return result
 
     normalized = url.strip()
+
     if not normalized.startswith(("http://", "https://")):
         normalized = "https://" + normalized
 
@@ -435,8 +594,10 @@ def scan_business_website(url):
     https_ok = parsed.scheme.lower() == "https"
 
     title = (soup.title.string or "").strip() if soup.title and soup.title.string else ""
+
     md = soup.find("meta", attrs={"name": "description"})
     description = (md.get("content") or "").strip() if md else ""
+
     h1_tags = [h.get_text(strip=True) for h in soup.find_all("h1")]
     viewport = soup.find("meta", attrs={"name": "viewport"})
     canonical = soup.find("link", attrs={"rel": "canonical"})
@@ -456,15 +617,18 @@ def scan_business_website(url):
     mail_links = soup.find_all("a", href=lambda h: h and h.lower().startswith("mailto:"))
     contact_mentions = len(re.findall(r"\b(contact|quote|appointment|schedule|book|call now|request)\b", text, re.I))
 
-    copyright_years = [int(y) for y in re.findall(r"(?:©|copyright)?\s*(20[0-2][0-9]|19[8-9][0-9])", html, re.I)]
+    copyright_years = [
+        int(y) for y in re.findall(r"(?:©|copyright)?\s*(20[0-2][0-9]|19[8-9][0-9])", html, re.I)
+    ]
+
     newest_copyright = max(copyright_years) if copyright_years else None
 
     if newest_copyright:
         result["freshness_signals"].append(f"Footer/copyright year detected: {newest_copyright}")
+
         if newest_copyright <= 2021:
             result["detected_issues"].append(f"Older copyright signal detected: {newest_copyright}")
 
-    # Common SEO / website opportunity issues
     if not https_ok:
         result["detected_issues"].append("Website is not using HTTPS")
 
@@ -503,19 +667,28 @@ def scan_business_website(url):
     if contact_mentions < 2:
         result["detected_issues"].append("Weak or unclear call-to-action signals")
 
-    # Check robots/sitemap
     base = f"{parsed.scheme}://{parsed.netloc}"
     robots_ok = False
     sitemap_ok = False
 
     try:
-        rr = requests.head(urljoin(base, "/robots.txt"), headers={"User-Agent": UA}, timeout=TIMEOUT, allow_redirects=True)
+        rr = requests.head(
+            urljoin(base, "/robots.txt"),
+            headers={"User-Agent": UA},
+            timeout=TIMEOUT,
+            allow_redirects=True
+        )
         robots_ok = rr.status_code == 200
     except Exception:
         pass
 
     try:
-        sr = requests.head(urljoin(base, "/sitemap.xml"), headers={"User-Agent": UA}, timeout=TIMEOUT, allow_redirects=True)
+        sr = requests.head(
+            urljoin(base, "/sitemap.xml"),
+            headers={"User-Agent": UA},
+            timeout=TIMEOUT,
+            allow_redirects=True
+        )
         sitemap_ok = sr.status_code == 200
     except Exception:
         pass
@@ -526,14 +699,13 @@ def scan_business_website(url):
     if not sitemap_ok:
         result["detected_issues"].append("XML sitemap not found")
 
-    # Contact name extraction
     contact = find_contact_name_from_site(soup)
     result["contact_name"] = contact["name"]
     result["contact_role"] = contact["role"]
     result["contact_confidence"] = contact["confidence"]
 
-    # SEO-ish score for the website
     seo_score = 0
+
     if title:
         seo_score += 10
     if description:
@@ -554,27 +726,31 @@ def scan_business_website(url):
         seo_score += 6
     if schema_scripts:
         seo_score += 6
+
     if word_count >= 800:
         seo_score += 12
     elif word_count >= 400:
         seo_score += 8
     elif word_count >= 250:
         seo_score += 4
+
     if len(imgs) > 0:
         alt_ratio = (len(imgs) - imgs_without_alt) / len(imgs)
+
         if alt_ratio >= 0.9:
             seo_score += 8
         elif alt_ratio >= 0.7:
             seo_score += 4
+
     if tel_links:
         seo_score += 4
+
     if contact_mentions >= 2:
         seo_score += 4
 
     seo_score = max(0, min(100, int(round(seo_score))))
     result["seo_score"] = seo_score
 
-    # The lower the site score, the higher the opportunity score.
     issue_boost = min(len(result["detected_issues"]) * 4, 28)
     result["website_opportunity_score"] = max(15, min(100, int((100 - seo_score) + issue_boost)))
 
@@ -676,8 +852,8 @@ def build_outreach_opener(place, category, market, website_scan, recommended_off
     contact_name = website_scan.get("contact_name") or ""
 
     issue = "your website may not be matching the quality of your local reputation"
-
     detected = website_scan.get("detected_issues", [])
+
     if detected:
         issue = detected[0].lower()
 
@@ -714,6 +890,7 @@ def existing_business_leads():
         return jsonify({"error": f"Google Places search failed: {e}"}), 400
 
     leads = []
+
     debug = {
         "raw_places_returned": len(raw_places),
         "skipped_no_place_id": 0,
@@ -726,11 +903,13 @@ def existing_business_leads():
 
     for item in raw_places:
         place_id = item.get("place_id")
+
         if not place_id:
             debug["skipped_no_place_id"] += 1
             continue
 
-        details = place_details(place_id)
+        details = item.get("_new_place_details") or place_details(place_id)
+
         if not details:
             debug["skipped_no_details"] += 1
             continue
@@ -747,7 +926,7 @@ def existing_business_leads():
         if reviews < min_reviews:
             debug["skipped_low_reviews"] += 1
             continue
-            
+
         website = details.get("website") or ""
         address = details.get("formatted_address") or ""
         name = details.get("name") or ""
@@ -798,8 +977,6 @@ def existing_business_leads():
         }
 
         leads.append(lead)
-
-        # Keep things polite and reduce API/site pressure.
         time.sleep(0.15)
 
     leads.sort(key=lambda x: x.get("lead_priority_score", 0), reverse=True)
@@ -810,9 +987,13 @@ def existing_business_leads():
         "radius_miles": radius_miles,
         "count": len(leads),
         "debug": debug,
+        "places_debug": LAST_PLACES_DEBUG,
         "leads": leads
     })
+
+
 # ---------- Lead capture ----------
+
 @app.route("/lead", methods=["POST"])
 def lead():
     data = request.get_json(force=True)
@@ -820,7 +1001,6 @@ def lead():
     email = (data.get("email") or "").strip()
     message = (data.get("message") or "").strip()
 
-    # If a Brevo API key is set, send an email; otherwise return ok without error.
     brevo_api_key = os.environ.get("BREVO_API_KEY", "").strip()
     to_email = os.environ.get("TO_EMAIL", "dividojo@gmail.com").strip()
 
@@ -846,15 +1026,15 @@ def lead():
                 },
                 timeout=TIMEOUT,
             )
+
             if resp.status_code >= 300:
-                # Log but don't fail UX
                 print("Brevo error:", resp.status_code, resp.text)
+
         except Exception as e:
             print("Brevo send exception:", e)
 
-    # Always OK for front-end UX
     return jsonify({"ok": True})
-    
+
 
 if __name__ == "__main__":
     # Render will run via gunicorn, but this helps local testing
