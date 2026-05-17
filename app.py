@@ -804,7 +804,7 @@ def existing_business_leads():
 
     leads.sort(key=lambda x: x.get("lead_priority_score", 0), reverse=True)
 
-        return jsonify({
+    return jsonify({
         "market": market,
         "category": category,
         "radius_miles": radius_miles,
