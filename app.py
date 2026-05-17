@@ -754,7 +754,7 @@ def existing_business_leads():
 
         is_chain = likely_chain_business(name, website, address)
 
-                if exclude_chains and is_chain:
+        if exclude_chains and is_chain:
             debug["skipped_chain"] += 1
             continue
 
