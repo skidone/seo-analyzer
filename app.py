@@ -724,7 +724,7 @@ def existing_business_leads():
         "processed": 0
     }
 
-        for item in raw_places:
+    for item in raw_places:
         place_id = item.get("place_id")
         if not place_id:
             debug["skipped_no_place_id"] += 1
