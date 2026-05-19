@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
@@ -9,9 +11,25 @@ import time
 
 app = Flask(__name__)
 
-# Allow your site + local for testing
-CORS(app, resources={r"/*": {"origins": ["https://dividojo.com", "https://www.dividojo.com", "*"]}})
+# Public launch protection:
+# Only Divi Dojo should be allowed to call this API from browser-based frontend code.
+CORS(app, resources={
+    r"/*": {
+        "origins": [
+            "https://dividojo.com",
+            "https://www.dividojo.com"
+        ]
+    }
+})
 
+# Basic fair-use protection.
+# This helps prevent one person or bot from burning through PageSpeed quota.
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
 UA = "Mozilla/5.0 (compatible; DiviDojoSEO/1.0; +https://dividojo.com)"
 TIMEOUT = 10
 LAST_PLACES_DEBUG = {}
@@ -1720,8 +1738,15 @@ def run_pagespeed(url, strategy):
 
     return response.json()
 
-
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify({
+        "error": "Daily fair-use limit reached.",
+        "message": "Divi Dojo Speed Analyzer is free to use, but daily limits help keep the tool available for everyone. Please try again later, or contact Divi Dojo if you need help reviewing your website speed."
+    }), 429
+    
 @app.route("/speed-check", methods=["POST"])
+@limiter.limit("20 per day; 5 per hour")
 def speed_check():
     data = request.get_json(force=True)
     url = normalize_speed_url(data.get("url"))
