@@ -1656,7 +1656,7 @@ def parse_pagespeed_result(data, strategy):
     best_practices = safe_score(categories.get("best-practices", {}))
     seo = safe_score(categories.get("seo", {}))
 
-        screenshot = ""
+    screenshot = ""
 
     try:
         screenshot = (
