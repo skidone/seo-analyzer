@@ -35,7 +35,6 @@ def analyze():
     if not url:
         return jsonify({"error": "Missing URL"}), 400
 
-    # Normalize URL
     parsed = urlparse(url)
     if not parsed.scheme:
         url = "https://" + url
@@ -51,8 +50,6 @@ def analyze():
 
     html = r.text
     soup = BeautifulSoup(html, "html.parser")
-
-    # ---------- Extract signals ----------
 
     title = (soup.title.string or "").strip() if soup.title and soup.title.string else ""
 
@@ -87,8 +84,7 @@ def analyze():
             timeout=TIMEOUT,
             allow_redirects=True
         )
-        if rr.status_code == 200:
-            robots_ok = True
+        robots_ok = rr.status_code == 200
     except Exception:
         pass
 
@@ -99,8 +95,7 @@ def analyze():
             timeout=TIMEOUT,
             allow_redirects=True
         )
-        if sr.status_code == 200:
-            sitemap_ok = True
+        sitemap_ok = sr.status_code == 200
     except Exception:
         pass
 
@@ -119,8 +114,6 @@ def analyze():
             keyword_found_in_list.append("H1")
         if keyword_in_body:
             keyword_found_in_list.append("Body")
-
-    # ---------- Scoring ----------
 
     score = 0
 
@@ -187,15 +180,12 @@ def analyze():
     sitemap_field = check_str(sitemap_ok, yes="✅ Found", no="❌ Not Found")
     kw_where = ", ".join(keyword_found_in_list) if keyword_found_in_list else "Not Found"
 
-    estimated_visitors = "N/A"
-    backlinks_domains = "N/A"
-
     payload = {
         "URL": url,
         "SEO Score (0–100)": seo_score,
         "Verdict": verdict,
-        "Estimated Monthly Visitors": estimated_visitors,
-        "Backlinks (Referring Domains)": backlinks_domains,
+        "Estimated Monthly Visitors": "N/A",
+        "Backlinks (Referring Domains)": "N/A",
         "Title": title_field,
         "Title Tag": title or "",
         "Meta Description": desc_field,
@@ -332,7 +322,6 @@ def places_nearby_search(market, category, radius_miles=15, limit=20):
         )
     }
 
-    # Attempt 1: Places API New Text Search with location bias
     try:
         response = requests.post(
             "https://places.googleapis.com/v1/places:searchText",
@@ -366,7 +355,6 @@ def places_nearby_search(market, category, radius_miles=15, limit=20):
     except Exception as e:
         LAST_PLACES_DEBUG["last_error"] = "New location search failed: " + str(e)
 
-    # Attempt 2: Places API New Text Search without location bias
     try:
         response = requests.post(
             "https://places.googleapis.com/v1/places:searchText",
@@ -391,7 +379,6 @@ def places_nearby_search(market, category, radius_miles=15, limit=20):
     except Exception as e:
         LAST_PLACES_DEBUG["last_error"] = "New no-location search failed: " + str(e)
 
-    # Attempt 3: Legacy Text Search fallback
     try:
         data = google_get(
             "https://maps.googleapis.com/maps/api/place/textsearch/json",
@@ -1034,6 +1021,8 @@ def lead():
             print("Brevo send exception:", e)
 
     return jsonify({"ok": True})
+
+
 # ---------- Website Speed Checker ----------
 
 def pagespeed_api_key():
@@ -1070,6 +1059,98 @@ def format_ms(value):
         return f"{int(round(n))}ms"
     except Exception:
         return "N/A"
+
+
+def speed_grade(score):
+    try:
+        n = int(score)
+    except Exception:
+        return "N/A"
+
+    if n >= 90:
+        return "A"
+    if n >= 75:
+        return "B"
+    if n >= 50:
+        return "C"
+    if n >= 30:
+        return "D"
+    return "F"
+
+
+def speed_grade_label(score):
+    try:
+        n = int(score)
+    except Exception:
+        return "Not available"
+
+    if n >= 90:
+        return "Fast"
+    if n >= 75:
+        return "Good, with room for polish"
+    if n >= 50:
+        return "Needs speed cleanup"
+    if n >= 30:
+        return "Slow"
+    return "Serious performance issue"
+
+
+def get_metric_numeric(audits, key):
+    audit = audits.get(key, {})
+    value = audit.get("numericValue")
+
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def client_load_time_from_audits(audits):
+    # Use Largest Contentful Paint as the client-friendly load time.
+    lcp = get_metric_numeric(audits, "largest-contentful-paint")
+
+    if lcp is None:
+        return "N/A"
+
+    return format_ms(lcp)
+
+
+def plain_language_speed_summary(score, load_time, strategy):
+    grade = speed_grade(score)
+    device = "desktop" if strategy == "desktop" else "mobile"
+
+    if grade == "A":
+        return (
+            f"Your {device} page feels fast. The main content appears quickly, "
+            f"and the site has a strong performance foundation."
+        )
+
+    if grade == "B":
+        return (
+            f"Your {device} page is in good shape, but there may still be small "
+            f"speed wins that make the site feel lighter and more polished."
+        )
+
+    if grade == "C":
+        return (
+            f"Your {device} page loads, but it may feel slower than visitors expect. "
+            f"A focused cleanup can help reduce delays from scripts, CSS, images, "
+            f"plugins, or layout weight."
+        )
+
+    if grade == "D":
+        return (
+            f"Your {device} page is likely slow enough for visitors to notice. "
+            f"This may affect trust, bounce rate, and lead flow."
+        )
+
+    if grade == "F":
+        return (
+            f"Your {device} page has serious performance issues. Visitors may leave "
+            f"before the page fully loads or becomes easy to use."
+        )
+
+    return f"Your {device} speed result needs review."
 
 
 def format_metric_value(audit):
@@ -1135,32 +1216,70 @@ def build_speed_recommendation(mobile_score, desktop_score, opportunities):
     low_mobile = mobile_score is not None and mobile_score < 70
     low_desktop = desktop_score is not None and desktop_score < 75
 
-    issue_blob = " ".join([o.get("title", "") for o in opportunities]).lower()
+    issue_blob = " ".join([
+        (o.get("title", "") + " " + o.get("description", "") + " " + o.get("key", ""))
+        for o in opportunities
+    ]).lower()
 
-    if low_mobile and ("image" in issue_blob or "properly size images" in issue_blob or "next-gen" in issue_blob):
+    if "image" in issue_blob or "webp" in issue_blob or "offscreen" in issue_blob:
         return {
-            "title": "Divi Speed Cleanup + Image Optimization",
-            "text": "Your results suggest mobile speed may be held back by image weight, layout loading, or front-end assets. Divi Dojo would start with image optimization, lazy loading review, page structure cleanup, and Divi performance settings.",
-            "pills": ["Image optimization", "Mobile speed", "Divi cleanup", "Performance review"]
+            "title": "Divi Image Optimization + Speed Cleanup",
+            "text": (
+                "Your results suggest speed may be held back by image weight, layout loading, "
+                "or front-end assets. Divi Dojo would start with image optimization, WebP review, "
+                "lazy loading, page structure cleanup, and Divi performance settings."
+            ),
+            "pills": ["Image optimization", "WebP review", "Lazy loading", "Divi cleanup"]
+        }
+
+    if "unused css" in issue_blob or "unused javascript" in issue_blob or "render-blocking" in issue_blob:
+        return {
+            "title": "Divi Asset Cleanup + Plugin Review",
+            "text": (
+                "Your results point toward CSS, JavaScript, or render-blocking assets. "
+                "On a Divi site, this often means reviewing Divi performance settings, plugin load, "
+                "script delay, caching, and unnecessary front-end weight."
+            ),
+            "pills": ["Divi assets", "Plugin audit", "Script delay", "Caching setup"]
+        }
+
+    if "server response" in issue_blob or "cache" in issue_blob or "compression" in issue_blob:
+        return {
+            "title": "Hosting, Cache + Performance Setup",
+            "text": (
+                "Your results may involve hosting response time, caching, compression, or CDN setup. "
+                "Divi Dojo would review the technical foundation before making page-level improvements."
+            ),
+            "pills": ["Hosting review", "Caching", "Compression", "CDN setup"]
         }
 
     if low_mobile or low_desktop:
         return {
-            "title": "Website Performance Refresh",
-            "text": "Your site may benefit from a focused performance cleanup. Divi Dojo would review hosting, plugins, Divi assets, caching, images, scripts, and layout structure to improve loading experience.",
-            "pills": ["Caching", "Plugin review", "Core Web Vitals", "Speed cleanup"]
+            "title": "Full Divi Performance Cleanup",
+            "text": (
+                "Your site may benefit from a focused performance cleanup. Divi Dojo would review "
+                "hosting, plugins, Divi assets, caching, images, scripts, layout structure, and "
+                "mobile/desktop user experience."
+            ),
+            "pills": ["Divi cleanup", "Plugin review", "Core Web Vitals", "Speed cleanup"]
         }
 
     if mobile_score is not None and mobile_score >= 85 and desktop_score is not None and desktop_score >= 85:
         return {
             "title": "Maintenance + Speed Monitoring",
-            "text": "Your speed foundation looks strong. The best next step may be ongoing maintenance, performance monitoring, updates, and SEO/content growth so your site stays fast and polished.",
+            "text": (
+                "Your speed foundation looks strong. The best next step may be ongoing maintenance, "
+                "performance monitoring, updates, and SEO/content growth so your site stays fast and polished."
+            ),
             "pills": ["Maintenance", "Monitoring", "Updates", "SEO growth"]
         }
 
     return {
-        "title": "Divi Website Optimization",
-        "text": "Your website has room for polish. Divi Dojo would look at performance basics, design structure, SEO signals, mobile experience, and conversion paths together.",
+        "title": "Divi Website Performance Refresh",
+        "text": (
+            "Your website has room for performance polish. Divi Dojo would look at performance basics, "
+            "Divi settings, plugin weight, SEO signals, mobile experience, and conversion paths together."
+        ),
         "pills": ["Divi optimization", "Mobile polish", "SEO structure", "Conversion cleanup"]
     }
 
@@ -1175,11 +1294,16 @@ def parse_pagespeed_result(data, strategy):
     best_practices = safe_score(categories.get("best-practices", {}))
     seo = safe_score(categories.get("seo", {}))
 
+    load_time = client_load_time_from_audits(audits)
+    grade = speed_grade(performance)
+    grade_label = speed_grade_label(performance)
+    plain_summary = plain_language_speed_summary(performance, load_time, strategy)
+
     metric_keys = [
         ("first-contentful-paint", "First Contentful Paint"),
-        ("largest-contentful-paint", "Largest Contentful Paint"),
+        ("largest-contentful-paint", "Estimated Load Time"),
         ("total-blocking-time", "Total Blocking Time"),
-        ("cumulative-layout-shift", "Cumulative Layout Shift"),
+        ("cumulative-layout-shift", "Layout Shift"),
         ("speed-index", "Speed Index")
     ]
 
@@ -1246,6 +1370,10 @@ def parse_pagespeed_result(data, strategy):
     return {
         "strategy": strategy,
         "performance": performance,
+        "grade": grade,
+        "grade_label": grade_label,
+        "estimated_load_time": load_time,
+        "plain_summary": plain_summary,
         "accessibility": accessibility,
         "best_practices": best_practices,
         "seo": seo,
@@ -1287,7 +1415,8 @@ def speed_check():
     results = {}
     errors = {}
 
-    for strategy in ["mobile", "desktop"]:
+    # Desktop first because most business owners understand desktop results first.
+    for strategy in ["desktop", "mobile"]:
         try:
             raw = run_pagespeed(url, strategy)
             results[strategy] = parse_pagespeed_result(raw, strategy)
@@ -1304,7 +1433,7 @@ def speed_check():
 
     if not results:
         return jsonify({
-            "error": "Speed check failed for mobile and desktop.",
+            "error": "Speed check failed for desktop and mobile.",
             "details": errors,
             "hint": "Check whether PageSpeed Insights API is enabled and whether PAGESPEED_API_KEY is valid/restricted correctly."
         }), 400
@@ -1313,18 +1442,19 @@ def speed_check():
     desktop_score = results.get("desktop", {}).get("performance")
 
     all_opportunities = []
-    for strategy in ["mobile", "desktop"]:
+    for strategy in ["desktop", "mobile"]:
         all_opportunities.extend(results.get(strategy, {}).get("opportunities", []))
 
     recommendation = build_speed_recommendation(mobile_score, desktop_score, all_opportunities)
 
     return jsonify({
         "url": url,
-        "mobile": results.get("mobile"),
         "desktop": results.get("desktop"),
+        "mobile": results.get("mobile"),
         "errors": errors,
         "recommendation": recommendation
     })
+
 
 if __name__ == "__main__":
     # Render will run via gunicorn, but this helps local testing
