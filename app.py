@@ -1061,110 +1061,63 @@ def format_ms(value):
         return "N/A"
 
 
-def parse_seconds_from_display(value):
-    text = str(value or "").strip().lower()
-
+def format_bytes(value):
     try:
-        if text.endswith("ms"):
-            return float(text.replace("ms", "").strip()) / 1000.0
+        n = float(value)
 
-        if text.endswith("s"):
-            return float(text.replace("s", "").strip())
+        if n >= 1024 * 1024:
+            return f"{n / (1024 * 1024):.1f} MB"
+
+        if n >= 1024:
+            return f"{n / 1024:.0f} KB"
+
+        return f"{int(round(n))} B"
     except Exception:
-        return None
-
-    return None
+        return ""
 
 
-def base_grade_points(score):
+def format_wasted_ms(value):
     try:
-        n = int(score)
+        n = float(value)
+        if n <= 0:
+            return ""
+        return format_ms(n)
     except Exception:
-        return 0
-
-    if n >= 90:
-        return 8   # A
-    if n >= 80:
-        return 7   # B+
-    if n >= 70:
-        return 6   # B
-    if n >= 60:
-        return 5   # B-
-    if n >= 50:
-        return 4   # C
-    if n >= 40:
-        return 3   # D+
-    if n >= 30:
-        return 2   # D
-
-    return 1       # F
+        return ""
 
 
-def grade_from_points(points):
-    if points >= 8:
-        return "A"
-    if points == 7:
-        return "B+"
-    if points == 6:
-        return "B"
-    if points == 5:
-        return "B-"
-    if points == 4:
-        return "C"
-    if points == 3:
-        return "D+"
-    if points == 2:
-        return "D"
-
-    return "F"
-
-
-def speed_grade(score, load_time=""):
+def speed_grade(score):
     try:
         n = int(score)
     except Exception:
         return "N/A"
 
-    points = base_grade_points(score)
-    seconds = parse_seconds_from_display(load_time)
-
-    # Divi Dojo practical adjustment:
-    # If the visible page load is quick, avoid over-penalizing the display grade
-    # just because Google found technical cleanup opportunities.
-    if seconds is not None and n >= 50:
-        if seconds <= 1.5:
-            points += 1
-        elif seconds <= 2.2 and n >= 60:
-            points += 1
-
-    # Keep the grade honest. A low Google performance score should not display as perfect.
-    if n < 75:
-        points = min(points, 6)  # max B
-    if n < 65:
-        points = min(points, 5)  # max B-
-    if n < 50:
-        points = min(points, 3)  # max D+
-
-    return grade_from_points(points)
+    if n >= 90:
+        return "A"
+    if n >= 75:
+        return "B"
+    if n >= 50:
+        return "C"
+    if n >= 30:
+        return "D"
+    return "F"
 
 
-def speed_grade_label(score, load_time=""):
-    grade = speed_grade(score, load_time)
+def speed_grade_label(score):
+    try:
+        n = int(score)
+    except Exception:
+        return "Not available"
 
-    if grade == "A":
-        return "Fast and healthy"
-    if grade in ["B+", "B"]:
-        return "Good speed, some cleanup recommended"
-    if grade == "B-":
-        return "Fast load, cleanup recommended"
-    if grade == "C":
+    if n >= 90:
+        return "Fast"
+    if n >= 75:
+        return "Good, with room for polish"
+    if n >= 50:
         return "Needs speed cleanup"
-    if grade in ["D+", "D"]:
-        return "Slow enough to affect visitors"
-    if grade == "F":
-        return "Serious performance issue"
-
-    return "Not available"
+    if n >= 30:
+        return "Slow"
+    return "Serious performance issue"
 
 
 def get_metric_numeric(audits, key):
@@ -1178,8 +1131,6 @@ def get_metric_numeric(audits, key):
 
 
 def client_load_time_from_audits(audits):
-    # Use Largest Contentful Paint as the client-friendly load time.
-    # It represents when the main visible content is loaded.
     lcp = get_metric_numeric(audits, "largest-contentful-paint")
 
     if lcp is None:
@@ -1189,28 +1140,29 @@ def client_load_time_from_audits(audits):
 
 
 def plain_language_speed_summary(score, load_time, strategy):
-    grade = speed_grade(score, load_time)
+    grade = speed_grade(score)
     device = "desktop" if strategy == "desktop" else "mobile"
 
-    if grade in ["A", "B+", "B"]:
+    if grade == "A":
         return (
-            f"Your {device} page appears to load quickly for visitors. Google still found some technical cleanup opportunities, "
-            f"but this is not a panic result. Divi Dojo would focus on making the page cleaner, lighter, and more consistent."
+            f"Your {device} page feels fast. The main content appears quickly, "
+            f"and the site has a strong performance foundation."
         )
 
-    if grade == "B-":
+    if grade == "B":
         return (
-            f"Your {device} page has a quick visible load time, but Google still found performance cleanup opportunities. "
-            f"This usually means the site feels usable, but scripts, CSS, plugins, images, or layout weight could still be improved."
+            f"Your {device} page is in good shape, but there may still be small "
+            f"speed wins that make the site feel lighter and more polished."
         )
 
     if grade == "C":
         return (
-            f"Your {device} page is usable, but the scan found clear speed cleanup opportunities. "
-            f"Divi Dojo would review what is adding weight behind the scenes, including Divi settings, plugins, scripts, CSS, images, and caching."
+            f"Your {device} page loads, but it may feel slower than visitors expect. "
+            f"A focused cleanup can help reduce delays from scripts, CSS, images, "
+            f"plugins, or layout weight."
         )
 
-    if grade in ["D+", "D"]:
+    if grade == "D":
         return (
             f"Your {device} page is likely slow enough for visitors to notice. "
             f"This may affect trust, bounce rate, and lead flow."
@@ -1218,8 +1170,8 @@ def plain_language_speed_summary(score, load_time, strategy):
 
     if grade == "F":
         return (
-            f"Your {device} page has serious performance issues. "
-            f"Visitors may leave before the page fully loads or becomes easy to use."
+            f"Your {device} page has serious performance issues. Visitors may leave "
+            f"before the page fully loads or becomes easy to use."
         )
 
     return f"Your {device} speed result needs review."
@@ -1284,42 +1236,279 @@ def metric_score_status(metric_key, numeric_value):
     return "neutral"
 
 
-def build_speed_recommendation(mobile_score, desktop_score, opportunities):
+def audit_savings_text(audit):
+    details = audit.get("details") or {}
+    overall_savings_ms = details.get("overallSavingsMs")
+    overall_savings_bytes = details.get("overallSavingsBytes")
+
+    parts = []
+
+    if overall_savings_ms:
+        ms = format_wasted_ms(overall_savings_ms)
+        if ms:
+            parts.append(f"Potential time savings: {ms}")
+
+    if overall_savings_bytes:
+        size = format_bytes(overall_savings_bytes)
+        if size:
+            parts.append(f"Potential transfer savings: {size}")
+
+    display_value = audit.get("displayValue") or ""
+    if display_value and display_value not in parts:
+        parts.append(display_value)
+
+    return " · ".join(parts)
+
+
+def classify_finding_severity(audit, key):
+    score = audit.get("score")
+
+    try:
+        score_float = float(score)
+    except Exception:
+        score_float = 1
+
+    details = audit.get("details") or {}
+    savings_ms = float(details.get("overallSavingsMs") or 0)
+    savings_bytes = float(details.get("overallSavingsBytes") or 0)
+
+    high_keys = [
+        "render-blocking-resources",
+        "unused-javascript",
+        "unused-css-rules",
+        "total-blocking-time",
+        "largest-contentful-paint",
+        "server-response-time"
+    ]
+
+    if key in high_keys and (score_float < 0.5 or savings_ms >= 600 or savings_bytes >= 250000):
+        return "high"
+
+    if score_float < 0.5 or savings_ms >= 400 or savings_bytes >= 150000:
+        return "high"
+
+    if score_float < 0.9 or savings_ms >= 150 or savings_bytes >= 50000:
+        return "medium"
+
+    return "low"
+
+
+def finding_priority_label(severity):
+    if severity == "high":
+        return "Fix First"
+    if severity == "medium":
+        return "Good Improvement"
+    return "Review"
+
+
+def make_actual_finding(key, audit):
+    title = audit.get("title") or "Performance issue found"
+    description = audit.get("description") or ""
+    savings = audit_savings_text(audit)
+    severity = classify_finding_severity(audit, key)
+    priority = finding_priority_label(severity)
+
+    finding = {
+        "key": key,
+        "type": "general",
+        "severity": severity,
+        "priority": priority,
+        "title": title,
+        "evidence": savings,
+        "plain_english": "Google found a performance item worth reviewing on this page.",
+        "divi_fix": "Review the Divi page structure, modules, global sections, theme options, and any effects or embeds used on this page.",
+        "wordpress_fix": "Review plugins, caching, image optimization, hosting, scripts, and whether any assets are loading on pages where they are not needed.",
+        "developer_note": description[:420],
+        "displayValue": audit.get("displayValue") or "",
+        "score": audit.get("score")
+    }
+
+    image_keys = [
+        "uses-optimized-images",
+        "uses-webp-images",
+        "uses-responsive-images",
+        "modern-image-formats",
+        "offscreen-images",
+        "efficient-animated-content",
+        "unsized-images"
+    ]
+
+    css_keys = [
+        "render-blocking-resources",
+        "unused-css-rules",
+        "unminified-css"
+    ]
+
+    js_keys = [
+        "unused-javascript",
+        "unminified-javascript",
+        "legacy-javascript",
+        "bootup-time",
+        "mainthread-work-breakdown",
+        "third-party-summary",
+        "total-blocking-time"
+    ]
+
+    server_keys = [
+        "server-response-time",
+        "uses-text-compression",
+        "uses-long-cache-ttl",
+        "redirects"
+    ]
+
+    layout_keys = [
+        "dom-size",
+        "cumulative-layout-shift",
+        "layout-shift-elements",
+        "largest-contentful-paint-element"
+    ]
+
+    if key in image_keys:
+        finding.update({
+            "type": "images",
+            "plain_english": "This page appears to have image-related speed savings. Images may be too large, not compressed enough, not using modern formats, or loading before they are needed.",
+            "divi_fix": "Check Divi hero images, background images, gallery modules, image modules, and mobile image sizing. Large background images are a common Divi speed drag.",
+            "wordpress_fix": "Compress images, resize oversized uploads, use WebP/AVIF where possible, and confirm lazy loading is working for below-the-fold media.",
+            "developer_note": description[:420] or "Image audit returned by PageSpeed/Lighthouse."
+        })
+
+    elif key in css_keys:
+        finding.update({
+            "type": "css",
+            "plain_english": "CSS may be delaying how quickly the page becomes visible or the page may be loading styles that are not needed immediately.",
+            "divi_fix": "Review Divi Theme Options > Performance, especially dynamic CSS, critical CSS, and whether heavy modules/global sections are adding extra styles.",
+            "wordpress_fix": "Check whether theme, builder, or plugin CSS is loading sitewide. A caching/performance plugin may help remove unused CSS or delay non-critical CSS.",
+            "developer_note": description[:420] or "CSS/render-blocking audit returned by PageSpeed/Lighthouse."
+        })
+
+    elif key in js_keys:
+        finding.update({
+            "type": "javascript",
+            "plain_english": "JavaScript may be adding delay before the page feels fully usable. This often comes from plugins, tracking scripts, animations, forms, maps, popups, sliders, or third-party widgets.",
+            "divi_fix": "Audit Divi add-ons, sliders, animations, forms, popups, and any modules that load extra scripts. Delay scripts that are not needed immediately.",
+            "wordpress_fix": "Review plugins loading scripts sitewide. Common culprits include forms, popups, maps, chat widgets, analytics, reviews, booking tools, and social embeds.",
+            "developer_note": description[:420] or "JavaScript/main-thread audit returned by PageSpeed/Lighthouse."
+        })
+
+    elif key in server_keys:
+        finding.update({
+            "type": "server-cache",
+            "plain_english": "The technical delivery layer may need improvement. Hosting response, compression, redirects, or browser caching can affect speed even when the page design looks fine.",
+            "divi_fix": "After Divi layout cleanup, confirm the site is running with proper cache settings and that Divi static assets are being served efficiently.",
+            "wordpress_fix": "Review page caching, browser caching, compression, CDN setup, redirects, hosting quality, and whether static assets have long cache lifetimes.",
+            "developer_note": description[:420] or "Server/cache audit returned by PageSpeed/Lighthouse."
+        })
+
+    elif key in layout_keys:
+        finding.update({
+            "type": "layout",
+            "plain_english": "The page structure may be creating extra browser work or visual movement. Large layouts, too many sections/modules, or unstable elements can make a page feel less smooth.",
+            "divi_fix": "Simplify Divi sections/modules where possible, avoid unnecessary nested rows, reduce heavy animations, and check above-the-fold layout stability.",
+            "wordpress_fix": "Review page builder output, embeds, widgets, plugin blocks, ad/tracking placements, and any elements that load late or shift the layout.",
+            "developer_note": description[:420] or "Layout/DOM audit returned by PageSpeed/Lighthouse."
+        })
+
+    return finding
+
+
+def extract_actual_findings(audits):
+    finding_keys = [
+        "render-blocking-resources",
+        "unused-css-rules",
+        "unused-javascript",
+        "uses-optimized-images",
+        "uses-webp-images",
+        "uses-responsive-images",
+        "efficient-animated-content",
+        "modern-image-formats",
+        "offscreen-images",
+        "unminified-css",
+        "unminified-javascript",
+        "server-response-time",
+        "uses-text-compression",
+        "uses-long-cache-ttl",
+        "third-party-summary",
+        "dom-size",
+        "legacy-javascript",
+        "bootup-time",
+        "mainthread-work-breakdown",
+        "redirects",
+        "unsized-images",
+        "largest-contentful-paint-element",
+        "layout-shift-elements"
+    ]
+
+    findings = []
+
+    for key in finding_keys:
+        audit = audits.get(key)
+
+        if not audit:
+            continue
+
+        score = audit.get("score")
+
+        if score is None:
+            details = audit.get("details") or {}
+            has_items = bool(details.get("items"))
+            if not has_items:
+                continue
+        else:
+            try:
+                score_float = float(score)
+            except Exception:
+                score_float = 1
+
+            if score_float >= 0.9:
+                continue
+
+        findings.append(make_actual_finding(key, audit))
+
+    severity_order = {
+        "high": 0,
+        "medium": 1,
+        "low": 2
+    }
+
+    findings.sort(key=lambda f: severity_order.get(f.get("severity"), 9))
+
+    return findings[:12]
+
+
+def build_speed_recommendation(mobile_score, desktop_score, findings):
+    issue_blob = " ".join([
+        (f.get("type", "") + " " + f.get("title", "") + " " + f.get("plain_english", ""))
+        for f in findings
+    ]).lower()
+
     low_mobile = mobile_score is not None and mobile_score < 70
     low_desktop = desktop_score is not None and desktop_score < 75
 
-    issue_blob = " ".join([
-        (o.get("title", "") + " " + o.get("description", "") + " " + o.get("key", ""))
-        for o in opportunities
-    ]).lower()
-
-    if "image" in issue_blob or "webp" in issue_blob or "offscreen" in issue_blob:
+    if "images" in issue_blob:
         return {
             "title": "Divi Image Optimization + Speed Cleanup",
             "text": (
-                "Your results suggest speed may be held back by image weight, layout loading, "
-                "or front-end assets. Divi Dojo would start with image optimization, WebP review, "
-                "lazy loading, page structure cleanup, and Divi performance settings."
+                "The scan found image-related performance opportunities. Divi Dojo would start with hero/background images, "
+                "gallery and module images, WebP conversion, compression, lazy loading, and mobile image sizing."
             ),
-            "pills": ["Image optimization", "WebP review", "Lazy loading", "Divi cleanup"]
+            "pills": ["Image optimization", "WebP review", "Lazy loading", "Divi media cleanup"]
         }
 
-    if "unused css" in issue_blob or "unused javascript" in issue_blob or "render-blocking" in issue_blob:
+    if "javascript" in issue_blob or "css" in issue_blob:
         return {
             "title": "Divi Asset Cleanup + Plugin Review",
             "text": (
-                "Your results point toward CSS, JavaScript, or render-blocking assets. "
-                "On a Divi site, this often means reviewing Divi performance settings, plugin load, "
-                "script delay, caching, and unnecessary front-end weight."
+                "The scan found CSS or JavaScript cleanup opportunities. On Divi and WordPress sites, this usually means "
+                "reviewing Divi performance settings, plugin load, render-blocking files, script delay, and unnecessary front-end weight."
             ),
             "pills": ["Divi assets", "Plugin audit", "Script delay", "Caching setup"]
         }
 
-    if "server response" in issue_blob or "cache" in issue_blob or "compression" in issue_blob:
+    if "server-cache" in issue_blob:
         return {
             "title": "Hosting, Cache + Performance Setup",
             "text": (
-                "Your results may involve hosting response time, caching, compression, or CDN setup. "
+                "The scan found delivery-layer opportunities, such as cache, compression, server response, or asset lifetime. "
                 "Divi Dojo would review the technical foundation before making page-level improvements."
             ),
             "pills": ["Hosting review", "Caching", "Compression", "CDN setup"]
@@ -1329,9 +1518,8 @@ def build_speed_recommendation(mobile_score, desktop_score, opportunities):
         return {
             "title": "Full Divi Performance Cleanup",
             "text": (
-                "Your site may benefit from a focused performance cleanup. Divi Dojo would review "
-                "hosting, plugins, Divi assets, caching, images, scripts, layout structure, and "
-                "mobile/desktop user experience."
+                "Your site may benefit from a focused performance cleanup. Divi Dojo would review hosting, plugins, Divi assets, "
+                "caching, images, scripts, layout structure, and mobile/desktop user experience."
             ),
             "pills": ["Divi cleanup", "Plugin review", "Core Web Vitals", "Speed cleanup"]
         }
@@ -1340,8 +1528,8 @@ def build_speed_recommendation(mobile_score, desktop_score, opportunities):
         return {
             "title": "Maintenance + Speed Monitoring",
             "text": (
-                "Your speed foundation looks strong. The best next step may be ongoing maintenance, "
-                "performance monitoring, updates, and SEO/content growth so your site stays fast and polished."
+                "Your speed foundation looks strong. The best next step may be ongoing maintenance, performance monitoring, "
+                "updates, and SEO/content growth so your site stays fast and polished."
             ),
             "pills": ["Maintenance", "Monitoring", "Updates", "SEO growth"]
         }
@@ -1349,8 +1537,8 @@ def build_speed_recommendation(mobile_score, desktop_score, opportunities):
     return {
         "title": "Divi Website Performance Refresh",
         "text": (
-            "Your website has room for performance polish. Divi Dojo would look at performance basics, "
-            "Divi settings, plugin weight, SEO signals, mobile experience, and conversion paths together."
+            "Your website has room for performance polish. Divi Dojo would look at performance basics, Divi settings, "
+            "plugin weight, SEO signals, mobile experience, and conversion paths together."
         ),
         "pills": ["Divi optimization", "Mobile polish", "SEO structure", "Conversion cleanup"]
     }
@@ -1367,8 +1555,8 @@ def parse_pagespeed_result(data, strategy):
     seo = safe_score(categories.get("seo", {}))
 
     load_time = client_load_time_from_audits(audits)
-    grade = speed_grade(performance, load_time)
-    grade_label = speed_grade_label(performance, load_time)
+    grade = speed_grade(performance)
+    grade_label = speed_grade_label(performance)
     plain_summary = plain_language_speed_summary(performance, load_time, strategy)
 
     metric_keys = [
@@ -1391,53 +1579,20 @@ def parse_pagespeed_result(data, strategy):
             "status": metric_score_status(key, audit.get("numericValue"))
         })
 
-    opportunity_keys = [
-        "render-blocking-resources",
-        "unused-css-rules",
-        "unused-javascript",
-        "uses-optimized-images",
-        "uses-webp-images",
-        "uses-responsive-images",
-        "efficient-animated-content",
-        "modern-image-formats",
-        "offscreen-images",
-        "unminified-css",
-        "unminified-javascript",
-        "server-response-time",
-        "uses-text-compression",
-        "uses-long-cache-ttl",
-        "third-party-summary",
-        "dom-size",
-        "legacy-javascript"
-    ]
+    actual_findings = extract_actual_findings(audits)
 
     opportunities = []
 
-    for key in opportunity_keys:
-        audit = audits.get(key)
-        if not audit:
-            continue
-
-        score = audit.get("score")
-        title = audit.get("title", "")
-        display_value = audit.get("displayValue", "")
-        description = audit.get("description", "")
-
-        if score is None:
-            continue
-
-        try:
-            score_float = float(score)
-        except Exception:
-            score_float = 1
-
-        if score_float < 0.9:
-            opportunities.append({
-                "key": key,
-                "title": title,
-                "displayValue": display_value,
-                "description": description[:280]
-            })
+    for finding in actual_findings:
+        opportunities.append({
+            "key": finding.get("key"),
+            "title": finding.get("title"),
+            "displayValue": finding.get("evidence"),
+            "description": finding.get("plain_english"),
+            "type": finding.get("type"),
+            "severity": finding.get("severity"),
+            "priority": finding.get("priority")
+        })
 
     return {
         "strategy": strategy,
@@ -1450,7 +1605,8 @@ def parse_pagespeed_result(data, strategy):
         "best_practices": best_practices,
         "seo": seo,
         "metrics": metrics,
-        "opportunities": opportunities[:8]
+        "opportunities": opportunities[:10],
+        "actual_findings": actual_findings
     }
 
 
@@ -1487,7 +1643,6 @@ def speed_check():
     results = {}
     errors = {}
 
-    # Desktop first because most business owners understand desktop results first.
     for strategy in ["desktop", "mobile"]:
         try:
             raw = run_pagespeed(url, strategy)
@@ -1513,11 +1668,11 @@ def speed_check():
     mobile_score = results.get("mobile", {}).get("performance")
     desktop_score = results.get("desktop", {}).get("performance")
 
-    all_opportunities = []
+    all_findings = []
     for strategy in ["desktop", "mobile"]:
-        all_opportunities.extend(results.get(strategy, {}).get("opportunities", []))
+        all_findings.extend(results.get(strategy, {}).get("actual_findings", []))
 
-    recommendation = build_speed_recommendation(mobile_score, desktop_score, all_opportunities)
+    recommendation = build_speed_recommendation(mobile_score, desktop_score, all_findings)
 
     return jsonify({
         "url": url,
