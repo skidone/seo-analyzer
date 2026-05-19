@@ -1269,7 +1269,7 @@ def run_pagespeed(url, strategy):
     response = requests.get(
         "https://www.googleapis.com/pagespeedonline/v5/runPagespeed",
         params=params,
-        timeout=45
+        timeout=90
     )
 
     response.raise_for_status()
