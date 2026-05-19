@@ -1741,8 +1741,8 @@ def run_pagespeed(url, strategy):
 @app.errorhandler(429)
 def ratelimit_handler(e):
     return jsonify({
-        "error": "Daily fair-use limit reached.",
-        "message": "Divi Dojo Speed Analyzer is free to use, but daily limits help keep the tool available for everyone. Please try again later, or contact Divi Dojo if you need help reviewing your website speed."
+        "error": "Free fair-use limit reached.",
+        "message": "Divi Dojo Speed Analyzer is free to use. Each visitor can run up to 5 speed checks per hour and 20 speed checks per day so the tool stays available for everyone. Please try again later, or contact Divi Dojo if you need help reviewing your website speed."
     }), 429
     
 @app.route("/speed-check", methods=["POST"])
