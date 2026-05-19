@@ -1291,13 +1291,22 @@ def speed_check():
         try:
             raw = run_pagespeed(url, strategy)
             results[strategy] = parse_pagespeed_result(raw, strategy)
+
+        except requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else "unknown"
+            response_text = e.response.text[:1200] if e.response is not None else ""
+            errors[strategy] = f"HTTP {status_code}: {response_text}"
+            print(f"PageSpeed {strategy} error:", errors[strategy], flush=True)
+
         except Exception as e:
             errors[strategy] = str(e)
+            print(f"PageSpeed {strategy} error:", errors[strategy], flush=True)
 
     if not results:
         return jsonify({
             "error": "Speed check failed for mobile and desktop.",
-            "details": errors
+            "details": errors,
+            "hint": "Check whether PageSpeed Insights API is enabled and whether PAGESPEED_API_KEY is valid/restricted correctly."
         }), 400
 
     mobile_score = results.get("mobile", {}).get("performance")
