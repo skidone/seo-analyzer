@@ -1,2 +1,2 @@
-web: gunicorn -b 0.0.0.0:5000 app:app --timeout 120
+web: gunicorn -b 0.0.0.0:$PORT app:app --timeout 240 --workers 1 --threads 2
 
