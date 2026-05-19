@@ -1061,38 +1061,110 @@ def format_ms(value):
         return "N/A"
 
 
-def speed_grade(score):
+def parse_seconds_from_display(value):
+    text = str(value or "").strip().lower()
+
+    try:
+        if text.endswith("ms"):
+            return float(text.replace("ms", "").strip()) / 1000.0
+
+        if text.endswith("s"):
+            return float(text.replace("s", "").strip())
+    except Exception:
+        return None
+
+    return None
+
+
+def base_grade_points(score):
+    try:
+        n = int(score)
+    except Exception:
+        return 0
+
+    if n >= 90:
+        return 8   # A
+    if n >= 80:
+        return 7   # B+
+    if n >= 70:
+        return 6   # B
+    if n >= 60:
+        return 5   # B-
+    if n >= 50:
+        return 4   # C
+    if n >= 40:
+        return 3   # D+
+    if n >= 30:
+        return 2   # D
+
+    return 1       # F
+
+
+def grade_from_points(points):
+    if points >= 8:
+        return "A"
+    if points == 7:
+        return "B+"
+    if points == 6:
+        return "B"
+    if points == 5:
+        return "B-"
+    if points == 4:
+        return "C"
+    if points == 3:
+        return "D+"
+    if points == 2:
+        return "D"
+
+    return "F"
+
+
+def speed_grade(score, load_time=""):
     try:
         n = int(score)
     except Exception:
         return "N/A"
 
-    if n >= 90:
-        return "A"
-    if n >= 75:
-        return "B"
-    if n >= 50:
-        return "C"
-    if n >= 30:
-        return "D"
-    return "F"
+    points = base_grade_points(score)
+    seconds = parse_seconds_from_display(load_time)
+
+    # Divi Dojo practical adjustment:
+    # If the visible page load is quick, avoid over-penalizing the display grade
+    # just because Google found technical cleanup opportunities.
+    if seconds is not None and n >= 50:
+        if seconds <= 1.5:
+            points += 1
+        elif seconds <= 2.2 and n >= 60:
+            points += 1
+
+    # Keep the grade honest. A low Google performance score should not display as perfect.
+    if n < 75:
+        points = min(points, 6)  # max B
+    if n < 65:
+        points = min(points, 5)  # max B-
+    if n < 50:
+        points = min(points, 3)  # max D+
+
+    return grade_from_points(points)
 
 
-def speed_grade_label(score):
-    try:
-        n = int(score)
-    except Exception:
-        return "Not available"
+def speed_grade_label(score, load_time=""):
+    grade = speed_grade(score, load_time)
 
-    if n >= 90:
-        return "Fast"
-    if n >= 75:
-        return "Good, with room for polish"
-    if n >= 50:
+    if grade == "A":
+        return "Fast and healthy"
+    if grade in ["B+", "B"]:
+        return "Good speed, some cleanup recommended"
+    if grade == "B-":
+        return "Fast load, cleanup recommended"
+    if grade == "C":
         return "Needs speed cleanup"
-    if n >= 30:
-        return "Slow"
-    return "Serious performance issue"
+    if grade in ["D+", "D"]:
+        return "Slow enough to affect visitors"
+    if grade == "F":
+        return "Serious performance issue"
+
+    return "Not available"
 
 
 def get_metric_numeric(audits, key):
@@ -1107,6 +1179,7 @@ def get_metric_numeric(audits, key):
 
 def client_load_time_from_audits(audits):
     # Use Largest Contentful Paint as the client-friendly load time.
+    # It represents when the main visible content is loaded.
     lcp = get_metric_numeric(audits, "largest-contentful-paint")
 
     if lcp is None:
@@ -1116,29 +1189,28 @@ def client_load_time_from_audits(audits):
 
 
 def plain_language_speed_summary(score, load_time, strategy):
-    grade = speed_grade(score)
+    grade = speed_grade(score, load_time)
     device = "desktop" if strategy == "desktop" else "mobile"
 
-    if grade == "A":
+    if grade in ["A", "B+", "B"]:
         return (
-            f"Your {device} page feels fast. The main content appears quickly, "
-            f"and the site has a strong performance foundation."
+            f"Your {device} page appears to load quickly for visitors. Google still found some technical cleanup opportunities, "
+            f"but this is not a panic result. Divi Dojo would focus on making the page cleaner, lighter, and more consistent."
         )
 
-    if grade == "B":
+    if grade == "B-":
         return (
-            f"Your {device} page is in good shape, but there may still be small "
-            f"speed wins that make the site feel lighter and more polished."
+            f"Your {device} page has a quick visible load time, but Google still found performance cleanup opportunities. "
+            f"This usually means the site feels usable, but scripts, CSS, plugins, images, or layout weight could still be improved."
         )
 
     if grade == "C":
         return (
-            f"Your {device} page loads, but it may feel slower than visitors expect. "
-            f"A focused cleanup can help reduce delays from scripts, CSS, images, "
-            f"plugins, or layout weight."
+            f"Your {device} page is usable, but the scan found clear speed cleanup opportunities. "
+            f"Divi Dojo would review what is adding weight behind the scenes, including Divi settings, plugins, scripts, CSS, images, and caching."
         )
 
-    if grade == "D":
+    if grade in ["D+", "D"]:
         return (
             f"Your {device} page is likely slow enough for visitors to notice. "
             f"This may affect trust, bounce rate, and lead flow."
@@ -1146,8 +1218,8 @@ def plain_language_speed_summary(score, load_time, strategy):
 
     if grade == "F":
         return (
-            f"Your {device} page has serious performance issues. Visitors may leave "
-            f"before the page fully loads or becomes easy to use."
+            f"Your {device} page has serious performance issues. "
+            f"Visitors may leave before the page fully loads or becomes easy to use."
         )
 
     return f"Your {device} speed result needs review."
@@ -1295,8 +1367,8 @@ def parse_pagespeed_result(data, strategy):
     seo = safe_score(categories.get("seo", {}))
 
     load_time = client_load_time_from_audits(audits)
-    grade = speed_grade(performance)
-    grade_label = speed_grade_label(performance)
+    grade = speed_grade(performance, load_time)
+    grade_label = speed_grade_label(performance, load_time)
     plain_summary = plain_language_speed_summary(performance, load_time, strategy)
 
     metric_keys = [
