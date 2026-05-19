@@ -1656,6 +1656,17 @@ def parse_pagespeed_result(data, strategy):
     best_practices = safe_score(categories.get("best-practices", {}))
     seo = safe_score(categories.get("seo", {}))
 
+        screenshot = ""
+
+    try:
+        screenshot = (
+            audits.get("final-screenshot", {})
+            .get("details", {})
+            .get("data", "")
+        )
+    except Exception:
+        screenshot = ""
+
     load_time = client_load_time_from_audits(audits)
     grade = speed_grade(performance)
     grade_label = speed_grade_label(performance)
@@ -1702,6 +1713,7 @@ def parse_pagespeed_result(data, strategy):
 
     return {
         "strategy": strategy,
+        "screenshot": screenshot,
         "performance": performance,
         "grade": grade,
         "grade_label": grade_label,
